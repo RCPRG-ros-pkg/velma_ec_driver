@@ -1,0 +1,20 @@
+<package>
+  <name>velma_ec_driver</name>
+  <version>1.0.0</version>
+  <description>
+    This package contains velma_ec_driver implementation.
+  </description>
+  <author email="dawid.seredynski@gmail.com">Dawid Seredynski</author>
+  <maintainer email="dawid.seredynski@gmail.com">Dawid Seredynski</maintainer>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>shm_comm</build_depend>
+  <run_depend>shm_comm</run_depend>
+
+  <build_depend>cifx_driver</build_depend>
+  <run_depend>cifx_driver</run_depend>
+
+</package>
