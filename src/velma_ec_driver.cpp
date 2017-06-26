@@ -19,8 +19,6 @@ extern "C" {
 #include <unistd.h>
 #include <signal.h>
 
-//#include "velma_config.inc"
-
 extern "C" {
 void sync_callback( uint32_t ulNotification,
                     uint32_t ulDataLen,
@@ -151,8 +149,7 @@ int main(int argc, char *argv[])
     // open reader shm channel
     //
     bool create_channel = false;
-//    std::string reader_shm_name("EC_Command");
-    std::string reader_shm_name("aaaa");
+    std::string reader_shm_name("EC_Command");
     shm_reader_t* re_;
     int result = shm_connect_reader(reader_shm_name.c_str(), &re_);
     if (result == SHM_INVAL) {
@@ -329,8 +326,6 @@ int main(int argc, char *argv[])
 
     char destFileName[200];
     strcpy(destFileName, "ethercat.xml");
-//    char velma_config2[sizeof(velma_config)+1];
-//    strcpy(velma_config2, velma_config);
     sts = xChannelDownload(hChannel, DOWNLOAD_MODE_CONFIG, destFileName, reinterpret_cast<uint8_t* >(eni_file), eni_file_size, NULL, NULL, NULL);
 
     if ( sts != CIFX_NO_ERROR) {
@@ -402,6 +397,8 @@ int main(int argc, char *argv[])
 
     void *re_buf = NULL;
 
+    int loops = 0;
+    int olddata_counter = 2;
     while (!stop)
     {
       int read_status = shm_reader_buffer_get(re_, &re_buf);
@@ -419,10 +416,16 @@ int main(int argc, char *argv[])
         shm_writer_buffer_get(wr_, &wr_buf);
       }
 
-      if (re_buf != NULL) {
+      if (read_status == 1 && olddata_counter < 2 && re_buf != NULL) {
+        sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, re_buf, 1000);
+        ++olddata_counter;
+      }
+      else if (read_status == 0 && re_buf != NULL) {
           sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, re_buf, 1000);
+          olddata_counter = 0;
       }
       else {
+          printf("error: read_status: %d (%d)\n", read_status, loops);
           sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
       }
       //printf("data write\n");
@@ -432,6 +435,7 @@ int main(int argc, char *argv[])
         printf("%s\n", ErrorStr);
       }
       usleep(1000);
+      ++loops;
     }
 
     std::cout << "closing ec driver" << std::endl;
