@@ -397,44 +397,59 @@ int main(int argc, char *argv[])
 
     void *re_buf = NULL;
 
+    bool first_ec_error = true;
+    bool first_shm_error = true;
     int loops = 0;
     int olddata_counter = 2;
     while (!stop)
     {
-      int read_status = shm_reader_buffer_get(re_, &re_buf);
-
       sts = xChannelIORead(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
       //uint32_t time = OS_GetMilliSecCounter();
       //printf("data read [time %d]\n", time);
       if ( sts != CIFX_NO_ERROR) {
-        xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-        printf("error : %d\n", sts);
-        printf("%s\n", ErrorStr);
+        if (first_ec_error) {
+          xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
+          printf("error : %d\n", sts);
+          printf("%s\n", ErrorStr);
+          first_ec_error = false;
+        }
+        continue;
       }
-      else {
-        shm_writer_buffer_write(wr_);
-        shm_writer_buffer_get(wr_, &wr_buf);
+      first_ec_error = true;
+
+      shm_writer_buffer_write(wr_);
+      shm_writer_buffer_get(wr_, &wr_buf);
+
+      timespec ts;
+      clock_gettime(CLOCK_REALTIME, &ts);
+
+      int timeout_nsec = 700000;    // 0.0007 s
+
+      ts.tv_nsec += timeout_nsec;
+      if (ts.tv_nsec >= 1000000000) {
+        ts.tv_nsec -= 1000000000;
+        ++ts.tv_sec;
       }
 
-      if (read_status == 1 && olddata_counter < 2 && re_buf != NULL) {
+      int read_status = shm_reader_buffer_timedwait(re_, &ts, &re_buf);
+
+      if (read_status == 0 && re_buf != NULL) {
         sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, re_buf, 1000);
-        ++olddata_counter;
-      }
-      else if (read_status == 0 && re_buf != NULL) {
-          sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, re_buf, 1000);
-          olddata_counter = 0;
+        olddata_counter = 0;
+        first_shm_error = true;
+
+        if ( sts != CIFX_NO_ERROR) {
+          xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
+          printf("error : %d\n", sts);
+          printf("%s\n", ErrorStr);
+        }
       }
       else {
-          printf("error: read_status: %d (%d)\n", read_status, loops);
-          sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
+        if (first_shm_error) {
+          printf("shm read error : %d\n", read_status);
+          first_shm_error = false;
+        }
       }
-      //printf("data write\n");
-      if ( sts != CIFX_NO_ERROR) {
-        xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-        printf("error : %d\n", sts);
-        printf("%s\n", ErrorStr);
-      }
-      usleep(1000);
       ++loops;
     }
 
