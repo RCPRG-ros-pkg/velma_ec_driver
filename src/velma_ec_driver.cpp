@@ -117,11 +117,25 @@ void interrupt(int data) {
     stop = true;
 }
 
+void timespec_diff(struct timespec *start, struct timespec *stop,
+                   struct timespec *result)
+{
+    if ((stop->tv_nsec - start->tv_nsec) < 0) {
+        result->tv_sec = stop->tv_sec - start->tv_sec - 1;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
+    } else {
+        result->tv_sec = stop->tv_sec - start->tv_sec;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec;
+    }
+
+    return;
+}
+
 int main(int argc, char *argv[]) 
 {
     const size_t pd_data_size = 1536;
 
-    if (argc != 2) {
+    if (argc < 2) {
         std::cout << "you must provide path to eni.xml" << std::endl;
         return 0;
     }
@@ -278,6 +292,19 @@ int main(int argc, char *argv[])
     param.sched_priority = 10;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
+    unsigned int cpu_affinity = 3;
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    for(unsigned i = 0; i < 8*sizeof(cpu_affinity); i++)
+    {
+        if(cpu_affinity & (1 << i)) { CPU_SET(i, &cs); }
+    }
+    result = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
+    if (result != 0) {
+        std::cout << "ERROR: pthread_setaffinity_np: " << result << std::endl;
+        return 1;
+    }
+
     memset( &init, 0, sizeof(init));
     init.init_options  = CIFX_DRIVER_INIT_AUTOSCAN;
     init.trace_level = 255;
@@ -400,9 +427,12 @@ int main(int argc, char *argv[])
     bool first_ec_error = true;
     bool first_shm_error = true;
     int loops = 0;
-    int olddata_counter = 2;
+//    int olddata_counter = 2;
     while (!stop)
     {
+//      timespec tp1, tp2, tp3, tp4, d1, d2, d3;
+//      clock_gettime(CLOCK_REALTIME, &tp1);
+
       sts = xChannelIORead(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
       //uint32_t time = OS_GetMilliSecCounter();
       //printf("data read [time %d]\n", time);
@@ -417,25 +447,35 @@ int main(int argc, char *argv[])
       }
       first_ec_error = true;
 
+//      clock_gettime(CLOCK_REALTIME, &tp2);
+
+//      timespec ts;
+//      clock_gettime(CLOCK_REALTIME, &ts);
+
+//      int timeout_nsec = 700000;    // 0.0007 s
+
+//      ts.tv_nsec += timeout_nsec;
+//      if (ts.tv_nsec >= 1000000000) {
+//        ts.tv_nsec -= 1000000000;
+//        ++ts.tv_sec;
+//      }
+
+//      int read_status = shm_reader_buffer_timedwait(re_, &ts, &re_buf);
+      int read_status = shm_reader_buffer_get(re_, &re_buf);
+//      if (read_status == 0 && re_buf != NULL) {
+//          olddata_counter = 0;
+//      }
+
       shm_writer_buffer_write(wr_);
       shm_writer_buffer_get(wr_, &wr_buf);
 
-      timespec ts;
-      clock_gettime(CLOCK_REALTIME, &ts);
-
-      int timeout_nsec = 700000;    // 0.0007 s
-
-      ts.tv_nsec += timeout_nsec;
-      if (ts.tv_nsec >= 1000000000) {
-        ts.tv_nsec -= 1000000000;
-        ++ts.tv_sec;
-      }
-
-      int read_status = shm_reader_buffer_timedwait(re_, &ts, &re_buf);
+//      clock_gettime(CLOCK_REALTIME, &tp3);
 
       if (read_status == 0 && re_buf != NULL) {
+//      if (olddata_counter < 2) {
+//        olddata_counter++;
         sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, re_buf, 1000);
-        olddata_counter = 0;
+//        olddata_counter = 0;
         first_shm_error = true;
 
         if ( sts != CIFX_NO_ERROR) {
@@ -450,6 +490,19 @@ int main(int argc, char *argv[])
           first_shm_error = false;
         }
       }
+//      clock_gettime(CLOCK_REALTIME, &tp4);
+
+//      timespec_diff(&tp1, &tp2, &d1);
+//      timespec_diff(&tp2, &tp3, &d2);
+//      timespec_diff(&tp3, &tp4, &d3);
+
+//      double i1, i2, i3;
+//      i1 = d1.tv_sec + 0.000000001 * d1.tv_nsec;
+//      i2 = d2.tv_sec + 0.000000001 * d2.tv_nsec;
+//      i3 = d3.tv_sec + 0.000000001 * d3.tv_nsec;
+
+//      std::cout << i1 << ", " << i2 << ", " << i3 << ", total: " << (i1+i2+i3) << std::endl;
+
       ++loops;
     }
 

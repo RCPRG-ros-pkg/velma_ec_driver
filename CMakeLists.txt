@@ -16,6 +16,6 @@ catkin_package(
 
 add_executable(velma_ec_driver src/velma_ec_driver.cpp)
 
-target_link_libraries(velma_ec_driver ${catkin_LIBRARIES})
+target_link_libraries(velma_ec_driver ${catkin_LIBRARIES} pthread)
 
 

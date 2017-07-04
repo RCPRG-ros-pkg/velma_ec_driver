@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="debug" default="false"/>
+  <arg name="cset" default="false"/>
+
+  <arg unless="$(arg cset)"  name="CSET_LAUNCH_PREFIX" value=""/>
+  <arg     if="$(arg cset)"  name="CSET_LAUNCH_PREFIX" value="cset proc -s user -e --"/>
+
+  <arg unless="$(arg debug)" name="LAUNCH_PREFIX" value=""/>
+  <arg     if="$(arg debug)" name="LAUNCH_PREFIX" value="gdb -ex run --args "/>
+
+  <node
+    launch-prefix="$(arg CSET_LAUNCH_PREFIX) $(arg LAUNCH_PREFIX)"
+    name="velma_ec_driver"
+    pkg="velma_ec_driver" type="velma_ec_driver"
+    args=" $(find velma_ec_gen_msgs)/ec_config/velma_eni3.xml" output="screen">
+<!--    <env name="LD_PRELOAD" value="libmalloc_hook.so" />-->
+  </node>
+
+  <param name="/use_sim_time" value="false" />
+</launch>
