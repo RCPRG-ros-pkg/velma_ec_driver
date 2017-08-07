@@ -292,7 +292,7 @@ int main(int argc, char *argv[])
     param.sched_priority = 10;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
-    unsigned int cpu_affinity = 3;
+    unsigned int cpu_affinity = 4;
     cpu_set_t cs;
     CPU_ZERO(&cs);
     for(unsigned i = 0; i < 8*sizeof(cpu_affinity); i++)
