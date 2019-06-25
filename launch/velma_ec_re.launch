@@ -13,7 +13,7 @@
     launch-prefix="$(arg CSET_LAUNCH_PREFIX) $(arg LAUNCH_PREFIX)"
     name="velma_ec_driver"
     pkg="velma_ec_driver" type="velma_ec_driver"
-    args=" $(find velma_ec_gen_msgs)/ec_config/velma_eni3.xml" output="screen">
+    args=" $(find velma_ec_gen_msgs)/ec_config/ethercat.xml" output="screen">
 <!--    <env name="LD_PRELOAD" value="libmalloc_hook.so" />-->
   </node>
 

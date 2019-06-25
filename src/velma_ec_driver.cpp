@@ -1,10 +1,10 @@
-extern "C" {
-#include <cifx_driver/cifXLinux.h>
-
-#include <cifx_driver/TLR_Types.h>
-#include <cifx_driver/rcX_Public.h>
-#include <cifx_driver/ecatm4/EcmIF_Public.h>
-}
+#include "cifx/linux/cifx.h"
+#include "cifx/cifXToolkit.h"
+#include "cifx/cifXErrors.h"
+#include "cifx/TLR_Types.h"
+#include "cifx/TLR_Results.h"
+#include "cifx/rcX_Public.h"
+#include "cifx/EcmIF_Public.h"
 
 #include "shm_comm/shm_channel.h"
 
@@ -280,7 +280,6 @@ int main(int argc, char *argv[])
     uint32_t ulChannel = 0;
     uint32_t  ulState = 0;
     int32_t sts;
-    struct CIFX_LINUX_INIT init;
 
     strcpy(szBoardName, "cifx0");
 
@@ -305,19 +304,26 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    memset( &init, 0, sizeof(init));
-    init.init_options  = CIFX_DRIVER_INIT_AUTOSCAN;
-    init.trace_level = 255;
-    init.int_prio = 20;
+    CIFX_DEVICE_INFO_T device;
+    device.uio_num = 0;
+    device.irq_sched_policy = SCHED_FIFO;
+    device.irq_sched_priority = 20;
 
-    sts = cifXDriverInit( &init);
-    if ( sts != CIFX_NO_ERROR) {
-      xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-      printf("error : %d\n", sts);
-      printf("%s\n", ErrorStr);
-      shm_release_reader(re_);
-      shm_release_writer(wr_);
-      return -1;
+    CIFX_LINUX_INIT_T init;
+    init.poll_interval_ms = 500;
+    init.poll_sched_policy = SCHED_FIFO;
+    init.poll_sched_priority = 20;
+    init.trace_level = TRACE_LEVEL_INFO;
+    init.devices = &device;
+    init.devices_count = 1;
+
+    const auto ec = cifXDriverInit(&init);
+    if(ec != CIFX_NO_ERROR)
+    {
+	TRACE_DRIVER_ERROR(ec, "[cifx_test] Could not initialize driver");
+        shm_release_reader(re_);
+        shm_release_writer(wr_);
+	return -1;
     }
 
     sts = xDriverOpen( &driver);
