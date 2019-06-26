@@ -134,7 +134,7 @@ void timespec_diff(struct timespec *start, struct timespec *stop,
 int main(int argc, char *argv[]) 
 {
     const size_t pd_data_size = 1536;
-
+/*
     if (argc < 2) {
         std::cout << "you must provide path to eni.xml" << std::endl;
         return 0;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
         std::cout << "ERROR: could not open file: '" << eni_file_path << "'" << std::endl;
         return 0;
     }
-
+*/
     signal(SIGINT, interrupt);
     //
     // open reader shm channel
@@ -321,6 +321,9 @@ int main(int argc, char *argv[])
     if(ec != CIFX_NO_ERROR)
     {
 	TRACE_DRIVER_ERROR(ec, "[cifx_test] Could not initialize driver");
+        xDriverGetErrorDescription( ec, ErrorStr, sizeof(ErrorStr));
+        printf("error : %X\n", ec);
+        printf("%s\n", ErrorStr);
         shm_release_reader(re_);
         shm_release_writer(wr_);
 	return -1;
@@ -329,7 +332,7 @@ int main(int argc, char *argv[])
     sts = xDriverOpen( &driver);
     if ( sts != CIFX_NO_ERROR) {
       xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-      printf("error : %d\n", sts);
+      printf("error : %X\n", sts);
       printf("%s\n", ErrorStr);
       shm_release_reader(re_);
       shm_release_writer(wr_);
@@ -339,7 +342,7 @@ int main(int argc, char *argv[])
     sts = xChannelOpen(driver, szBoardName, ulChannel, &hChannel);
     if ( sts != CIFX_NO_ERROR) {
       xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-      printf("error : %d\n", sts);
+      printf("error : %X\n", sts);
       printf("%s\n", ErrorStr);
       shm_release_reader(re_);
       shm_release_writer(wr_);
@@ -357,19 +360,18 @@ int main(int argc, char *argv[])
       return -1;
     }
 
-    char destFileName[200];
+/*    char destFileName[200];
     strcpy(destFileName, "ethercat.xml");
     sts = xChannelDownload(hChannel, DOWNLOAD_MODE_CONFIG, destFileName, reinterpret_cast<uint8_t* >(eni_file), eni_file_size, NULL, NULL, NULL);
 
     if ( sts != CIFX_NO_ERROR) {
       xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
-      printf("xChannelDownload error : %d\n", sts);
+      printf("xChannelDownload error : %X\n", sts);
       printf("%s\n", ErrorStr);
       shm_release_reader(re_);
       shm_release_writer(wr_);
       return -1;
     }
-
     sts = xChannelReset(hChannel, CIFX_CHANNELINIT, 1000);
 
     if ( sts != CIFX_NO_ERROR) {
@@ -380,6 +382,7 @@ int main(int argc, char *argv[])
       shm_release_writer(wr_);
       return -1;
     }
+*/
 
     sts = xChannelRegisterNotification(hChannel, CIFX_NOTIFY_COM_STATE, &sync_callback, NULL);
 
@@ -436,8 +439,8 @@ int main(int argc, char *argv[])
 //    int olddata_counter = 2;
     while (!stop)
     {
-//      timespec tp1, tp2, tp3, tp4, d1, d2, d3;
-//      clock_gettime(CLOCK_REALTIME, &tp1);
+      timespec tp1, tp2, tp3, tp4, d1, d2, d3;
+      clock_gettime(CLOCK_REALTIME, &tp1);
 
       sts = xChannelIORead(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
       //uint32_t time = OS_GetMilliSecCounter();
@@ -453,7 +456,7 @@ int main(int argc, char *argv[])
       }
       first_ec_error = true;
 
-//      clock_gettime(CLOCK_REALTIME, &tp2);
+      clock_gettime(CLOCK_REALTIME, &tp2);
 
 //      timespec ts;
 //      clock_gettime(CLOCK_REALTIME, &ts);
@@ -475,7 +478,7 @@ int main(int argc, char *argv[])
       shm_writer_buffer_write(wr_);
       shm_writer_buffer_get(wr_, &wr_buf);
 
-//      clock_gettime(CLOCK_REALTIME, &tp3);
+      clock_gettime(CLOCK_REALTIME, &tp3);
 
       if (read_status == 0 && re_buf != NULL) {
 //      if (olddata_counter < 2) {
@@ -496,18 +499,21 @@ int main(int argc, char *argv[])
           first_shm_error = false;
         }
       }
-//      clock_gettime(CLOCK_REALTIME, &tp4);
+      clock_gettime(CLOCK_REALTIME, &tp4);
 
-//      timespec_diff(&tp1, &tp2, &d1);
-//      timespec_diff(&tp2, &tp3, &d2);
-//      timespec_diff(&tp3, &tp4, &d3);
+      timespec_diff(&tp1, &tp2, &d1);
+      timespec_diff(&tp2, &tp3, &d2);
+      timespec_diff(&tp3, &tp4, &d3);
 
-//      double i1, i2, i3;
-//      i1 = d1.tv_sec + 0.000000001 * d1.tv_nsec;
-//      i2 = d2.tv_sec + 0.000000001 * d2.tv_nsec;
-//      i3 = d3.tv_sec + 0.000000001 * d3.tv_nsec;
+      double i1, i2, i3;
+      i1 = d1.tv_sec + 0.000000001 * d1.tv_nsec;
+      i2 = d2.tv_sec + 0.000000001 * d2.tv_nsec;
+      i3 = d3.tv_sec + 0.000000001 * d3.tv_nsec;
 
-//      std::cout << i1 << ", " << i2 << ", " << i3 << ", total: " << (i1+i2+i3) << std::endl;
+      if (loops > 1000) {
+          //std::cout << i1 << ", " << i2 << ", " << i3 << ", total: " << (i1+i2+i3) << std::endl;
+	  loops = 0;
+      }
 
       ++loops;
     }
