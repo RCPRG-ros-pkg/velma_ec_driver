@@ -288,7 +288,7 @@ int main(int argc, char *argv[])
     mlockall(MCL_CURRENT | MCL_FUTURE );
 
     struct sched_param param;
-    param.sched_priority = 10;
+    param.sched_priority = 20;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
     unsigned int cpu_affinity = 2;
