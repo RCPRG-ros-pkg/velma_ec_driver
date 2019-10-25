@@ -11,6 +11,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <sched.h>
 
 #include <string.h>
 #include <stdio.h>
@@ -291,7 +292,7 @@ int main(int argc, char *argv[])
     param.sched_priority = 20;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
-    unsigned int cpu_affinity = 2;
+    unsigned int cpu_affinity = 8;
     cpu_set_t cs;
     CPU_ZERO(&cs);
     for(unsigned i = 0; i < 8*sizeof(cpu_affinity); i++)
@@ -307,12 +308,12 @@ int main(int argc, char *argv[])
     CIFX_DEVICE_INFO_T device;
     device.uio_num = 0;
     device.irq_sched_policy = SCHED_FIFO;
-    device.irq_sched_priority = 20;
+    device.irq_sched_priority = 40;
 
     CIFX_LINUX_INIT_T init;
-    init.poll_interval_ms = 500;
+    init.poll_interval_ms = 1000;
     init.poll_sched_policy = SCHED_FIFO;
-    init.poll_sched_priority = 20;
+    init.poll_sched_priority = 40;
     init.trace_level = TRACE_LEVEL_INFO;
     init.devices = &device;
     init.devices_count = 1;
@@ -436,15 +437,13 @@ int main(int argc, char *argv[])
     bool first_ec_error = true;
     bool first_shm_error = true;
     int loops = 0;
-//    int olddata_counter = 2;
     while (!stop)
     {
+      
       timespec tp1, tp2, tp3, tp4, d1, d2, d3;
       clock_gettime(CLOCK_REALTIME, &tp1);
 
       sts = xChannelIORead(hChannel, 0, 0, pd_data_size, wr_buf, 1000);
-      //uint32_t time = OS_GetMilliSecCounter();
-      //printf("data read [time %d]\n", time);
       if ( sts != CIFX_NO_ERROR) {
         if (first_ec_error) {
           xDriverGetErrorDescription( sts, ErrorStr, sizeof(ErrorStr));
@@ -458,22 +457,7 @@ int main(int argc, char *argv[])
 
       clock_gettime(CLOCK_REALTIME, &tp2);
 
-//      timespec ts;
-//      clock_gettime(CLOCK_REALTIME, &ts);
-
-//      int timeout_nsec = 700000;    // 0.0007 s
-
-//      ts.tv_nsec += timeout_nsec;
-//      if (ts.tv_nsec >= 1000000000) {
-//        ts.tv_nsec -= 1000000000;
-//        ++ts.tv_sec;
-//      }
-
-//      int read_status = shm_reader_buffer_timedwait(re_, &ts, &re_buf);
       int read_status = shm_reader_buffer_get(re_, &re_buf);
-//      if (read_status == 0 && re_buf != NULL) {
-//          olddata_counter = 0;
-//      }
 
       shm_writer_buffer_write(wr_);
       shm_writer_buffer_get(wr_, &wr_buf);
@@ -516,6 +500,8 @@ int main(int argc, char *argv[])
       }
 
       ++loops;
+     
+	//	sched_yield();
     }
 
     std::cout << "closing ec driver" << std::endl;
