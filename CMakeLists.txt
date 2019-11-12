@@ -1,21 +1,58 @@
-cmake_minimum_required(VERSION 2.8)
-project(velma_ec_driver)
+###############################################################################
+# CMakeLists.txt
+#
+# Defines project structure for velma_ec_driver
+###############################################################################
+
+cmake_minimum_required(VERSION 3.10.0 FATAL_ERROR)
+project(velma_ec_driver LANGUAGES CXX)
+
+###############################################################################
+# Project dependencies
+###############################################################################
 
 find_package(catkin REQUIRED COMPONENTS
-  shm_comm
-  cifx_driver
+    shm_comm
+    cifx_driver
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+###############################################################################
+# Main executable definition
+###############################################################################
 
-include_directories(${catkin_INCLUDE_DIRS})
+add_executable(velma_ec_driver
+    src/velma_ec_driver.cpp
+)
+
+target_include_directories(velma_ec_driver
+    PRIVATE
+        ${catkin_INCLUDE_DIRS}
+)
+
+target_link_libraries(velma_ec_driver
+    PRIVATE
+        ${catkin_LIBRARIES}
+        pthread
+)
+
+set_target_properties(velma_ec_driver
+    PROPERTIES
+        CXX_STANDARD 14
+        CXX_EXTENSIONS OFF
+        CXX_STANDARD_REQUIRED ON
+)
+
+target_compile_options(velma_ec_driver
+    PRIVATE
+        -Wall -Wextra -pedantic
+)
+
+###############################################################################
+# Package configuration
+###############################################################################
 
 catkin_package(
-    CATKIN_DEPENDS shm_comm cifx_driver
+    CATKIN_DEPENDS
+        shm_comm
+        cifx_driver
 )
-
-add_executable(velma_ec_driver src/velma_ec_driver.cpp)
-
-target_link_libraries(velma_ec_driver ${catkin_LIBRARIES} pthread)
-
-
