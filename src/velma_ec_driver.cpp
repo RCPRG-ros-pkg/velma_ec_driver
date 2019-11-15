@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
     const auto ec = cifXDriverInit(&init);
     if(ec != CIFX_NO_ERROR)
     {
-        TRACE_DRIVER_ERROR(ec, "[cifx_test] Could not initialize driver");
+        TRACE_DRIVER_ERROR(ec, "[velma_ec_driver] Could not initialize driver");
             xDriverGetErrorDescription(ec, ErrorStr, sizeof(ErrorStr));
             printf("error : %X\n", ec);
             printf("%s\n", ErrorStr);
@@ -475,6 +475,7 @@ shm_writer_t* open_shm_writer(const char* name, size_t buffer_size)
         printf("ERROR: shm_connect_writer(%s): could not create reader\n", name);
         return nullptr;
     }
+
     if(create_channel)
     {
         result = shm_create_channel(name, buffer_size, 1, true);
