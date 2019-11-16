@@ -17,6 +17,16 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 ###############################################################################
+# Package configuration
+###############################################################################
+
+catkin_package(
+    CATKIN_DEPENDS
+        shm_comm
+        cifx_driver
+)
+
+###############################################################################
 # Main executable definition
 ###############################################################################
 
@@ -48,11 +58,10 @@ target_compile_options(velma_ec_driver
 )
 
 ###############################################################################
-# Package configuration
+# Installation configuration
 ###############################################################################
 
-catkin_package(
-    CATKIN_DEPENDS
-        shm_comm
-        cifx_driver
+install(TARGETS velma_ec_driver
+    RUNTIME
+        DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
