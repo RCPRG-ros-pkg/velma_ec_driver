@@ -70,7 +70,11 @@ int main(int argc, char *argv[])
 {
     const size_t pd_data_size = 1536;
 
+    printf("Installing signal handler...\n");
+
     signal(SIGINT, interrupt);
+
+    printf("Opening SHM channels...\n");
 
     auto shm_reader = open_shm_reader("EC_Command", pd_data_size);
     auto shm_writer = open_shm_writer("EC_Status", pd_data_size);
@@ -86,6 +90,14 @@ int main(int argc, char *argv[])
     int32_t sts;
 
     char ErrorStr[200];
+
+    printf("Configuring RT properties...\n");
+
+    lock_memory(MCL_CURRENT | MCL_FUTURE);
+    set_sched_params(SCHED_FIFO, 20);
+    set_affinity(0x2);
+
+    printf("Initializing EtherCAT...\n");
 
     CIFX_DEVICE_INFO_T device;
     device.uio_num = 0;
@@ -191,9 +203,7 @@ int main(int argc, char *argv[])
         std::cout << "ERROR: got NULL writer shm buffer" << std::endl;
     }
 
-    lock_memory(MCL_CURRENT | MCL_FUTURE);
-    set_sched_params(SCHED_FIFO, 20);
-    set_affinity(0x2);
+    printf("Starting...\n");
 
     void *shm_readerbuf = NULL;
     bool first_ec_error = true;
