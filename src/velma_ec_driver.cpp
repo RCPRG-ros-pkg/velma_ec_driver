@@ -11,6 +11,7 @@
 #include <cstring>
 #include <csignal>
 
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <iostream>
@@ -29,7 +30,9 @@
 #include "cifx/rcX_Public.h"
 #include "cifx/EcmIF_Public.h"
 
-#include "shm_comm/shm_channel.h"
+#include "shm_comm/Reader.hpp"
+#include "shm_comm/Writer.hpp"
+#include "shm_comm/shm_err.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Private declarations
@@ -46,10 +49,6 @@ static int32_t ecat_config_sync(CIFXHANDLE handle);
 
 static void interrupt(int data);
 
-static shm_reader_t* open_shm_reader(const char* name, size_t buffer_size);
-
-static shm_writer_t* open_shm_writer(const char* name, size_t buffer_size);
-
 static void lock_memory(int flags);
 
 static void set_sched_params(int policy, int priority);
@@ -60,13 +59,13 @@ static void set_affinity(unsigned int affinity);
 // Private globals
 ///////////////////////////////////////////////////////////////////////////////
 
-static bool stop = false;
+static std::atomic<bool> stop {false};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Private functions
 ///////////////////////////////////////////////////////////////////////////////
 
-int main(int argc, char *argv[])
+int main(int /*argc*/, char** /*argv*/)
 {
     const size_t pd_data_size = 1536;
 
@@ -74,14 +73,9 @@ int main(int argc, char *argv[])
 
     signal(SIGINT, interrupt);
 
-    printf("Opening SHM channels...\n");
-
-    auto shm_reader = open_shm_reader("EC_Command", pd_data_size);
-    auto shm_writer = open_shm_writer("EC_Status", pd_data_size);
-
-    //
-    // EC stuff
-    //
+    printf("Opening shared memory channels...\n");
+    auto ec_command = shm::Reader("EC_Command");
+    auto ec_status = shm::Writer("EC_Status");
 
     CIFXHANDLE driver = NULL;
     CIFXHANDLE hChannel = NULL;
@@ -92,7 +86,6 @@ int main(int argc, char *argv[])
     char ErrorStr[200];
 
     printf("Configuring RT properties...\n");
-
     lock_memory(MCL_CURRENT | MCL_FUTURE);
     set_sched_params(SCHED_FIFO, 20);
     set_affinity(0x2);
@@ -105,9 +98,7 @@ int main(int argc, char *argv[])
     device.irq_sched_priority = 40;
 
     CIFX_LINUX_INIT_T init;
-    init.poll_interval_ms = 1000;
-    init.poll_sched_policy = SCHED_FIFO;
-    init.poll_sched_priority = 40;
+    init.poll_interval_ms = -1; // Not using COS-polling
     init.trace_level = TRACE_LEVEL_INFO;
     init.devices = &device;
     init.devices_count = 1;
@@ -116,11 +107,9 @@ int main(int argc, char *argv[])
     if(ec != CIFX_NO_ERROR)
     {
         TRACE_DRIVER_ERROR(ec, "[velma_ec_driver] Could not initialize driver");
-            xDriverGetErrorDescription(ec, ErrorStr, sizeof(ErrorStr));
-            printf("error : %X\n", ec);
-            printf("%s\n", ErrorStr);
-            shm_release_reader(shm_reader);
-            shm_release_writer(shm_writer);
+        xDriverGetErrorDescription(ec, ErrorStr, sizeof(ErrorStr));
+        printf("error : %X\n", ec);
+        printf("%s\n", ErrorStr);
         return -1;
     }
 
@@ -130,8 +119,6 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("error : %X\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
@@ -141,8 +128,6 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("error : %X\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
@@ -152,8 +137,6 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("error : %d\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
@@ -163,13 +146,11 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("error : %d\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
-    std::cout << "Waiting 5 s..." << std::endl;
-    std::this_thread::sleep_for(5s);
+    std::cout << "Waiting 3 s..." << std::endl;
+    std::this_thread::sleep_for(3s);
 
     sts = ecat_config_sync(hChannel);
     if(sts != CIFX_NO_ERROR)
@@ -177,8 +158,6 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("error ecat_config_sync: %d\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
@@ -194,61 +173,44 @@ int main(int argc, char *argv[])
 
     printf("EtherCAT bus cycle: %dns\n", tdata.ulBusCycleTimeNs);
     printf("EtherCAT frame transmit time: %dns\n", tdata.ulFrameTransmitTimeNs);
-
-    void *shm_writerbuf = NULL;
-    shm_writer_buffer_get(shm_writer, &shm_writerbuf);
-    if(shm_writerbuf == NULL)
+    printf("Started!\n");
+    while(!stop)
     {
-        stop = true;
-        std::cout << "ERROR: got NULL writer shm buffer" << std::endl;
-    }
+        const auto time_now = std::chrono::steady_clock::now();
 
-    printf("Starting...\n");
-
-    void *shm_readerbuf = NULL;
-    bool first_ec_error = true;
-    bool first_shm_error = true;
-    int loops = 0;
-    while (!stop)
-    {
-        const auto read_status = xChannelIORead(hChannel, 0, 0, pd_data_size, shm_writerbuf, 1000);
-        if(read_status != CIFX_NO_ERROR)
+        void* ec_status_buffer {nullptr};
+        if(const auto result = ec_status.try_buffer_get(&ec_status_buffer); result != 0)
         {
-            if(first_ec_error)
-            {
-                xDriverGetErrorDescription(read_status, ErrorStr, sizeof(ErrorStr));
-                printf("Channel read error: %d\n", read_status);
-                printf("%s\n", ErrorStr);
-                first_ec_error = false;
-            }
-
-            continue;
+            printf("Could not get EC_Status write buffer, result: %d\n", result);
+        }
+        else if(const auto result = xChannelIORead(hChannel, 0, 0, pd_data_size, ec_status_buffer, 1000); result != CIFX_NO_ERROR)
+        {
+            xDriverGetErrorDescription(result, ErrorStr, sizeof(ErrorStr));
+            printf("EtherCAT Channel IO read error: %d\n", result);
+            printf("%s\n", ErrorStr);
+        }
+        else if(const auto result = ec_status.try_buffer_write(); result != 0)
+        {
+            printf("Could not write EC_Status buffer, result: %d\n", result);
         }
 
-        first_ec_error = true;
-        const auto buffer_get_status = shm_reader_buffer_get(shm_reader, &shm_readerbuf);
-
-        shm_writer_buffer_write(shm_writer);
-        shm_writer_buffer_get(shm_writer, &shm_writerbuf);
-
-        if(buffer_get_status == 0 && shm_readerbuf != NULL)
+        void* ec_command_buffer {nullptr};
+        if(const auto result = ec_command.try_buffer_get(&ec_command_buffer); result != 0)
         {
-            first_shm_error = true;
-            sts = xChannelIOWrite(hChannel, 0, 0, pd_data_size, shm_readerbuf, 1000);
-            if(sts != CIFX_NO_ERROR)
+            if(result != SHM_NODATA)
             {
-                xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
-                printf("Channel write error: %d\n", sts);
-                printf("%s\n", ErrorStr);
+                printf("Could not get EC_Command read buffer, result: %d\n", result);
             }
         }
-        else if(first_shm_error)
+        else if(const auto result = xChannelIOWrite(hChannel, 0, 0, pd_data_size, ec_command_buffer, 1000); result != CIFX_NO_ERROR)
         {
-            printf("SHM read error : %d\n", buffer_get_status);
-            first_shm_error = false;
+            xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
+            printf("Channel write error: %d\n", sts);
+            printf("%s\n", ErrorStr);
         }
 
-        ++loops;
+        const auto time_wakeup = (time_now + std::chrono::nanoseconds(tdata.ulBusCycleTimeNs));
+        std::this_thread::sleep_until(time_wakeup);
     }
 
     printf("Closing ec driver...");
@@ -259,8 +221,6 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("ChannelBusState set to OFF error : %d\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
 
@@ -270,13 +230,8 @@ int main(int argc, char *argv[])
         xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
         printf("ChannelHostState set to NotReady error : %d\n", sts);
         printf("%s\n", ErrorStr);
-        shm_release_reader(shm_reader);
-        shm_release_writer(shm_writer);
         return -1;
     }
-
-    shm_release_reader(shm_reader);
-    shm_release_writer(shm_writer);
 
     xChannelClose(hChannel);
     xDriverClose(driver);
@@ -286,7 +241,7 @@ void sync_callback(uint32_t /*notification*/, uint32_t /*data_len*/,
                    void* data, void* /*user*/)
 {
 	auto state = reinterpret_cast<CIFX_NOTIFY_COM_STATE_T*>(data);
-    printf("Sync Callback, comm state : %d\n", state->ulComState);
+    printf("EtherCAT Sync Callback, comm state : %d\n", state->ulComState);
 }
 
 int32_t ecat_get_timing(CIFXHANDLE handle, ECM_IF_GET_TIMING_INFO_CNF_DATA_T *timing_data)
@@ -373,142 +328,6 @@ int32_t ecat_config_sync(CIFXHANDLE handle)
 void interrupt(int /*data*/)
 {
     stop = true;
-}
-
-static shm_reader_t* open_shm_reader(const char* name, size_t buffer_size)
-{
-    bool create_channel = false;
-
-    shm_reader_t* shm_reader;
-    auto result = shm_connect_reader(name, &shm_reader);
-    if(result == SHM_INVAL)
-    {
-        std::cout << "ERROR: shm_connect_reader: invalid parameters" << std::endl;
-        return nullptr;
-    }
-    else if(result == SHM_FATAL)
-    {
-        std::cout << "ERROR: shm_connect_reader: memory error" << std::endl;
-        return nullptr;
-    }
-    else if(result == SHM_NO_CHANNEL)
-    {
-        std::cout << "WARNING: shm_connect_reader: could not open shm object, trying to initialize the channel..." << std::endl;
-        create_channel = true;
-    }
-    else if(result == SHM_CHANNEL_INCONSISTENT)
-    {
-        std::cout << "WARNING: shm_connect_reader: shm channel is inconsistent, trying to initialize the channel..." << std::endl;
-        create_channel = true;
-    }
-    else if(result == SHM_ERR_INIT)
-    {
-        std::cout << "ERROR: shm_connect_reader: could not initialize channel" << std::endl;
-        return nullptr;
-    }
-    else if(result == SHM_ERR_CREATE)
-    {
-        std::cout << "WARNING: shm_connect_reader: could not create reader" << std::endl;
-        create_channel = true;
-    }
-
-    if(!create_channel)
-    {
-        void *pbuf = NULL;
-        result = shm_reader_buffer_get(shm_reader, &pbuf);
-        if(result < 0)
-        {
-            std::cout << "WARNING: shm_reader_buffer_get: error: " << result << std::endl;
-            create_channel = true;
-        }
-    }
-
-    if(create_channel)
-    {
-        result = shm_create_channel(name, buffer_size, 1, true);
-        if(result != 0)
-        {
-            std::cout << "ERROR: create_shm_object: error: " << result << "   errno: " << errno << std::endl;
-            return nullptr;
-        }
-
-        result = shm_connect_reader(name, &shm_reader);
-        if(result != 0)
-        {
-            std::cout << "ERROR: shm_connect_reader: error: " << result << std::endl;
-            return nullptr;
-        }
-    }
-
-    if(stop)
-    {
-        shm_release_reader(shm_reader);
-        return nullptr;
-    }
-
-    return shm_reader;
-}
-
-shm_writer_t* open_shm_writer(const char* name, size_t buffer_size)
-{
-    bool create_channel = false;
-
-    shm_writer_t* shm_writer;
-    auto result = shm_connect_writer(name, &shm_writer);
-    if(result == SHM_INVAL)
-    {
-        printf("ERROR: shm_connect_writer(%s): invalid parameters\n", name);
-        return nullptr;
-    }
-    else if(result == SHM_FATAL)
-    {
-        printf("ERROR: shm_connect_writer(%s): memory error\n", name);
-        return nullptr;
-    }
-    else if(result == SHM_NO_CHANNEL)
-    {
-        printf("WARNING: shm_connect_writer(%s): could not open shm object, trying to initialize the channel...\n", name);
-        create_channel = true;
-    }
-    else if(result == SHM_CHANNEL_INCONSISTENT)
-    {
-        printf("WARNING: shm_connect_writer(%s): shm channel is inconsistent, trying to initialize the channel...\n", name);
-        create_channel = true;
-    }
-    else if(result == SHM_ERR_INIT)
-    {
-        printf("ERROR: shm_connect_writer(%s): could not initialize channel\n", name);
-        return nullptr;
-    }
-    else if(result == SHM_ERR_CREATE)
-    {
-        printf("ERROR: shm_connect_writer(%s): could not create reader\n", name);
-        return nullptr;
-    }
-
-    if(create_channel)
-    {
-        result = shm_create_channel(name, buffer_size, 1, true);
-        if(result != 0)
-        {
-            printf("ERROR: shm_create_channel(%s): error: %d errno: %d\n", name, result, errno);
-            return nullptr;
-        }
-        result = shm_connect_writer(name, &shm_writer);
-        if(result != 0)
-        {
-            printf("ERROR: shm_connect_writer(%s): error: %d\n", name, result);
-            return nullptr;
-        }
-    }
-
-    if(stop)
-    {
-        shm_release_writer(shm_writer);
-        return nullptr;
-    }
-
-    return shm_writer;
 }
 
 void lock_memory(int flags)
