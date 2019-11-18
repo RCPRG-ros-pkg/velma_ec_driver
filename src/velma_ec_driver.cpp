@@ -68,6 +68,7 @@ static std::atomic<bool> stop {false};
 int main(int /*argc*/, char** /*argv*/)
 {
     const size_t pd_data_size = 1536;
+    const auto affinity = 0x2;
 
     printf("Installing signal handler...\n");
 
@@ -88,7 +89,6 @@ int main(int /*argc*/, char** /*argv*/)
     printf("Configuring RT properties...\n");
     lock_memory(MCL_CURRENT | MCL_FUTURE);
     set_sched_params(SCHED_FIFO, 20);
-    set_affinity(0x2);
 
     printf("Initializing EtherCAT...\n");
 
@@ -96,6 +96,7 @@ int main(int /*argc*/, char** /*argv*/)
     device.uio_num = 0;
     device.irq_sched_policy = SCHED_FIFO;
     device.irq_sched_priority = 40;
+    device.irq_affinity = affinity;
 
     CIFX_LINUX_INIT_T init;
     init.poll_interval_ms = -1; // Not using COS-polling
@@ -173,11 +174,12 @@ int main(int /*argc*/, char** /*argv*/)
 
     printf("EtherCAT bus cycle: %dns\n", tdata.ulBusCycleTimeNs);
     printf("EtherCAT frame transmit time: %dns\n", tdata.ulFrameTransmitTimeNs);
+
+    set_affinity(affinity);
+
     printf("Started!\n");
     while(!stop)
     {
-        const auto time_now = std::chrono::steady_clock::now();
-
         void* ec_status_buffer {nullptr};
         if(const auto result = ec_status.try_buffer_get(&ec_status_buffer); result != 0)
         {
@@ -208,10 +210,9 @@ int main(int /*argc*/, char** /*argv*/)
             printf("Channel write error: %d\n", sts);
             printf("%s\n", ErrorStr);
         }
-
-        const auto time_wakeup = (time_now + std::chrono::nanoseconds(tdata.ulBusCycleTimeNs));
-        std::this_thread::sleep_until(time_wakeup);
     }
+
+    set_affinity(0x1);
 
     printf("Closing ec driver...");
 
@@ -332,14 +333,29 @@ void interrupt(int /*data*/)
 
 void lock_memory(int flags)
 {
-    mlockall(flags);
+    printf("[velma_ec_driver] Locking process memory with flags 0x%x...\n", flags);
+
+    const auto result = mlockall(flags);
+    if(result != 0)
+    {
+        const auto ec = errno;
+        throw std::runtime_error("Could not lock process memory: "
+            + std::string(strerror(ec)));
+    }
 }
 
 void set_sched_params(int policy, int priority)
 {
+    printf("[velma_ec_driver] Setting sched policy to %d with priority %d\n", policy, priority);
+
     struct sched_param param;
     param.sched_priority = priority;
-    pthread_setschedparam(pthread_self(), policy, &param);
+    const auto ec = pthread_setschedparam(pthread_self(), policy, &param);
+    if(ec != 0)
+    {
+        throw std::runtime_error("Could not set sched params: "
+            + std::string(strerror(ec)));
+    }
 }
 
 void set_affinity(unsigned int affinity)
@@ -354,9 +370,13 @@ void set_affinity(unsigned int affinity)
         }
     }
 
-    const auto result = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
-    if(result != 0)
+    printf("[velma_ec_driver] Setting affinity to 0x%x...\n", affinity);
+
+    const auto thread = pthread_self();
+    const auto ec = pthread_setaffinity_np(thread, sizeof(cs), &cs);
+    if(ec != 0)
     {
-        std::cout << "ERROR: pthread_setaffinity_np: " << result << std::endl;
+        throw std::runtime_error("Could not set affinity: " +
+            std::string(strerror(ec)));
     }
 }
