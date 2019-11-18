@@ -47,8 +47,7 @@ target_link_libraries(velma_ec_driver
 
 set_target_properties(velma_ec_driver
     PROPERTIES
-        CXX_STANDARD 14
-        CXX_EXTENSIONS OFF
+        CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON
 )
 
