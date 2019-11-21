@@ -91,6 +91,7 @@ int main(int argc, char *argv[])
     device.uio_num = 0;
     device.irq_sched_policy = SCHED_FIFO;
     device.irq_sched_priority = 40;
+    device.irq_affinity = 0x2;
 
     CIFX_LINUX_INIT_T init;
     init.poll_interval_ms = 1000;
