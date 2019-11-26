@@ -69,6 +69,7 @@ int main(int /*argc*/, char** /*argv*/)
 {
     const size_t pd_data_size = 1536;
     const auto affinity = 0x2;
+    const auto priority = 30;
 
     printf("Installing signal handler...\n");
 
@@ -86,16 +87,15 @@ int main(int /*argc*/, char** /*argv*/)
 
     char ErrorStr[200];
 
-    printf("Configuring RT properties...\n");
+    printf("Locking memory...\n");
     lock_memory(MCL_CURRENT | MCL_FUTURE);
-    set_sched_params(SCHED_FIFO, 20);
 
     printf("Initializing EtherCAT...\n");
 
     CIFX_DEVICE_INFO_T device;
     device.uio_num = 0;
     device.irq_sched_policy = SCHED_FIFO;
-    device.irq_sched_priority = 40;
+    device.irq_sched_priority = priority;
     device.irq_affinity = affinity;
 
     CIFX_LINUX_INIT_T init;
@@ -175,36 +175,66 @@ int main(int /*argc*/, char** /*argv*/)
     printf("EtherCAT bus cycle: %dns\n", tdata.ulBusCycleTimeNs);
     printf("EtherCAT frame transmit time: %dns\n", tdata.ulFrameTransmitTimeNs);
 
+    printf("Activating RT properties...\n");
+    set_sched_params(SCHED_FIFO, priority);
     set_affinity(affinity);
+
+    unsigned char ec_status_local_buffer[pd_data_size] = {0};
+    unsigned char ec_command_local_buffer[pd_data_size] = {0};
 
     printf("Started!\n");
     while(!stop)
     {
-        void* ec_status_buffer {nullptr};
-        if(const auto result = ec_status.try_buffer_get(&ec_status_buffer); result != 0)
-        {
-            printf("Could not get EC_Status write buffer, result: %d\n", result);
-        }
-        else if(const auto result = xChannelIORead(hChannel, 0, 0, pd_data_size, ec_status_buffer, 1000); result != CIFX_NO_ERROR)
+        // 1) Read EtherCAT Rx data from device to local buffer
+        if(const auto result = xChannelIORead(hChannel, 0, 0, pd_data_size, ec_status_local_buffer, 1000); result != CIFX_NO_ERROR)
         {
             xDriverGetErrorDescription(result, ErrorStr, sizeof(ErrorStr));
             printf("EtherCAT Channel IO read error: %d\n", result);
             printf("%s\n", ErrorStr);
         }
-        else if(const auto result = ec_status.try_buffer_write(); result != 0)
+
+        // 2) Try to get shared buffer for Rx data
+        void* ec_status_buffer {nullptr};
+        bool get_ec_status_buffer_success {true};
+        if(const auto result = ec_status.try_buffer_get(&ec_status_buffer); result != 0)
         {
-            printf("Could not write EC_Status buffer, result: %d\n", result);
+            printf("Could not get EC_Status buffer, result: %d\n", result);
+            get_ec_status_buffer_success = false;
         }
 
-        void* ec_command_buffer {nullptr};
-        if(const auto result = ec_command.try_buffer_get(&ec_command_buffer); result != 0)
+        // 3) Copy local EtherCAT Rx data into shared buffer
+        if(get_ec_status_buffer_success)
         {
-            if(result != SHM_NODATA)
-            {
-                printf("Could not get EC_Command read buffer, result: %d\n", result);
-            }
+            memcpy(ec_status_buffer, ec_status_local_buffer, pd_data_size);
         }
-        else if(const auto result = xChannelIOWrite(hChannel, 0, 0, pd_data_size, ec_command_buffer, 1000); result != CIFX_NO_ERROR)
+
+        // 4) Signal end of write to shared buffer for Rx data
+        if(const auto write_result = ec_status.try_buffer_write(); write_result != 0)
+        {
+            printf("Could not write EC_Status buffer, write_result: %d\n", write_result);
+        }
+
+        // 5) Try to wait for shared buffer to read Tx data (aka "wait" for that buffer)
+        void* ec_command_buffer {nullptr};
+        bool get_ec_command_buffer_success {true};
+        if(const auto result = ec_command.try_buffer_wait(&ec_command_buffer); result != 0)
+        {
+            if(result != SHM_OLDDATA)
+            {
+                printf("Could not get EC_Command buffer, result: %d\n", result);
+            }
+
+            get_ec_command_buffer_success = false;
+        }
+
+        // 6) Copy shared buffer into local EtherCAT Tx data
+        if(get_ec_command_buffer_success)
+        {
+            memcpy(ec_command_local_buffer, ec_command_buffer, pd_data_size);
+        }
+
+        // 7) Write EtherCAT Tx data from local to device
+        if(const auto result = xChannelIOWrite(hChannel, 0, 0, pd_data_size, ec_command_local_buffer, 1000); result != CIFX_NO_ERROR)
         {
             xDriverGetErrorDescription(sts, ErrorStr, sizeof(ErrorStr));
             printf("Channel write error: %d\n", sts);
@@ -213,6 +243,8 @@ int main(int /*argc*/, char** /*argv*/)
     }
 
     set_affinity(0x1);
+    set_sched_params(SCHED_OTHER, 0);
+    printf("RT properties deactivated\n");
 
     printf("Closing ec driver...");
 
