@@ -16,6 +16,13 @@ find_package(catkin REQUIRED COMPONENTS
     cifx_driver
 )
 
+
+catkin_package(
+    CATKIN_DEPENDS
+        shm_comm
+        cifx_driver
+)
+
 ###############################################################################
 # Main executable definition
 ###############################################################################
