@@ -90,13 +90,13 @@ int main(int argc, char *argv[])
     CIFX_DEVICE_INFO_T device;
     device.uio_num = 0;
     device.irq_sched_policy = SCHED_FIFO;
-    device.irq_sched_priority = 40;
+    device.irq_sched_priority = 30;
     device.irq_affinity = 0x2;
 
     CIFX_LINUX_INIT_T init;
-    init.poll_interval_ms = 1000;
+    init.poll_interval_ms = -1;
     init.poll_sched_policy = SCHED_FIFO;
-    init.poll_sched_priority = 40;
+    init.poll_sched_priority = 30;
     init.trace_level = TRACE_LEVEL_INFO;
     init.devices = &device;
     init.devices_count = 1;
@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
     }
 
     lock_memory(MCL_CURRENT | MCL_FUTURE);
-    set_sched_params(SCHED_FIFO, 20);
+    set_sched_params(SCHED_FIFO, 30);
     set_affinity(0x2);
 
     void *shm_readerbuf = NULL;
@@ -504,14 +504,22 @@ shm_writer_t* open_shm_writer(const char* name, size_t buffer_size)
 
 void lock_memory(int flags)
 {
-    mlockall(flags);
+    if(mlockall(flags)) {
+        perror("Could not lock memory");
+        exit(-1);
+    }
 }
 
 void set_sched_params(int policy, int priority)
 {
     struct sched_param param;
     param.sched_priority = priority;
-    pthread_setschedparam(pthread_self(), policy, &param);
+    const auto ec = pthread_setschedparam(pthread_self(), policy, &param);
+    if(ec != 0) {
+        errno = ec;
+        perror("Could not set sched params");
+        exit(-1);
+    }
 }
 
 void set_affinity(unsigned int affinity)
@@ -529,6 +537,8 @@ void set_affinity(unsigned int affinity)
     const auto result = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
     if(result != 0)
     {
-        std::cout << "ERROR: pthread_setaffinity_np: " << result << std::endl;
+        errno = result;
+        perror("Could not set affinity");
+        exit(-1);
     }
 }
